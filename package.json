@@ -1,0 +1,14 @@
+{
+  "name": "figma-local",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A small local Figma drawing bridge with reusable native templates.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "figma-local": "./cli.mjs" },
+  "scripts": {
+    "setup": "node cli.mjs setup",
+    "start": "node cli.mjs start",
+    "test": "node --test test/*.test.mjs"
+  }
+}

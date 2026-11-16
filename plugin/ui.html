@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px; font: 12px/1.55 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+    color: var(--figma-color-text, #202020); background: var(--figma-color-bg, #fff); }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  strong { font-size: 15px; letter-spacing: -.3px; }
+  .version { color: var(--figma-color-text-secondary, #777); font-size: 10px; }
+  .card { border-radius: 12px; padding: 14px; background: var(--figma-color-bg-secondary, #f6f6f6); }
+  #state { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  #dot { width: 7px; height: 7px; border-radius: 50%; background: #b4b4b4; flex: none; }
+  #dot[data-state=connected] { background: #22a56b; }
+  #dot[data-state=working] { background: #d49a25; }
+  #dot[data-state=error] { background: #df4965; }
+  #document { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 8px; }
+  #detail { margin: 10px 0 0; min-height: 36px; color: var(--figma-color-text-secondary, #777); overflow-wrap: anywhere; }
+  footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+  small { font-size: 10px; color: var(--figma-color-text-secondary, #777); }
+  button { min-height: 36px; border: 0; border-radius: 8px; padding: 0 12px; color: inherit;
+    background: var(--figma-color-bg-secondary, #f1f1f1); cursor: pointer;
+    transition: background-color .15s, transform .15s; }
+  button:hover { background: var(--figma-color-bg-hover, #e9e9e9); }
+  button:active { transform: scale(.96); }
+  button:focus-visible { outline: 2px solid #df4965; outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: default; }
+</style>
+<header><strong>Figma Local</strong><span class="version">0.1</span></header>
+<div class="card"><div id="state"><span id="dot"></span><span id="label">正在连接</span></div>
+<div id="document">读取当前文件…</div><p id="detail" role="status" aria-live="polite">请保持插件打开。</p></div>
+<footer><small>本机连接 · 可编辑图层</small><button id="retry" type="button">重新连接</button></footer>
+<script>
+const config = __LOCAL_CONFIG__;
+const $ = id => document.getElementById(id);
+let identity, connected = false, running = false, pending = null, wake, lastError = '';
+const send = message => parent.postMessage({ pluginMessage: message }, '*');
+function status(state, label, detail) { $('dot').dataset.state = state; $('label').textContent = label; $('detail').textContent = detail; }
+async function request(path, body, timeout = 15000) {
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(config.base + path, { method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.token }, body: JSON.stringify(body) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.error === 'string' ? data.error : data.error?.message || '连接失败');
+    return data;
+  } finally { clearTimeout(timer); }
+}
+function wait(ms) { return new Promise(resolve => { const timer = setTimeout(() => { wake = null; resolve(); }, ms);
+  wake = () => { clearTimeout(timer); wake = null; resolve(); }; }); }
+async function loop() {
+  let backoff = 1000;
+  while (true) {
+    try {
+      if (!connected) { await request('/v1/connect', identity); connected = true; }
+      if (pending) {
+        await request('/v1/result', { sessionId: identity.sessionId, ...pending });
+        lastError = pending.ok ? '' : pending.error.message;
+        status(pending.ok ? 'connected' : 'error', pending.ok ? '已完成' : '操作未完成',
+          pending.ok ? '图层已更新，等待下一条命令。' : pending.error.message);
+        pending = null;
+      }
+      if (running) { await wait(250); continue; }
+      $('retry').disabled = false;
+      status(lastError ? 'error' : 'connected', lastError ? '上次操作未完成' : '已连接',
+        lastError || '可接收绘图与修改命令，请保持插件打开。');
+      const { job } = await request('/v1/poll', { sessionId: identity.sessionId }, 26000);
+      backoff = 1000;
+      if (job) {
+        running = true; lastError = ''; $('retry').disabled = true;
+        status('working', '正在执行', '完成后会返回图层信息。'); send({ type: 'execute', job });
+      }
+    } catch (error) {
+      connected = false;
+      status('error', pending ? '正在补传结果' : '等待本地服务',
+        (pending ? '结果已保留。' : '') + String(error.message).slice(0, 180));
+      await wait(backoff); backoff = Math.min(backoff * 2, 8000);
+    }
+  }
+}
+onmessage = event => {
+  // Figma relays native plugin messages; event.source is not consistently the parent Window.
+  const message = event.data.pluginMessage;
+  if (!message) return;
+  if (message.type === 'ready' && !identity) {
+    identity = { sessionId: message.sessionId, document: message.document };
+    $('document').textContent = message.document.name; loop();
+  } else if (message.type === 'result') {
+    const { type, ...result } = message; pending = result; running = false; wake?.();
+  } else if (message.type === 'init-error') {
+    status('error', '初始化失败', message.error);
+  }
+};
+$('retry').onclick = () => { if (!identity) send({ type: 'hello' }); else if (!running) { connected = false; wake?.(); } };
+setInterval(() => { if (!identity) send({ type: 'hello' }); }, 1000);
+// Native work may run for minutes; keep the same session alive without requesting another job.
+let heartbeatBusy = false;
+setInterval(async () => {
+  if (!identity || !running || heartbeatBusy) return;
+  heartbeatBusy = true;
+  try { await request('/v1/connect', identity); }
+  catch (error) { status('error', '执行中 · 连接中断', String(error.message).slice(0, 180)); }
+  finally { heartbeatBusy = false; }
+}, 15000);
+send({ type: 'hello' });
+</script></html>

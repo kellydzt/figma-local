@@ -1,0 +1,4 @@
+.local/
+exports/
+.DS_Store
+node_modules/

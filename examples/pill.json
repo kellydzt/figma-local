@@ -1,0 +1,14 @@
+{
+  "template": "pill",
+  "name": "Website pill · Geist",
+  "text": "hypit.ai",
+  "icon": "globe",
+  "font": { "family": "Geist", "style": "SemiBold" },
+  "fontSize": 56,
+  "lineHeight": 56,
+  "fill": "#1D1B19",
+  "padding": 32,
+  "gap": 28,
+  "x": 80,
+  "y": 200
+}

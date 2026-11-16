@@ -1,0 +1,11 @@
+{
+  "template": "browser",
+  "name": "hypit.ai · Browser",
+  "title": "hypit.ai",
+  "url": "hypit.ai",
+  "width": 1440,
+  "height": 900,
+  "font": { "family": "Geist", "style": "Regular" },
+  "x": 80,
+  "y": 400
+}

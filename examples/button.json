@@ -1,0 +1,13 @@
+{
+  "template": "button",
+  "name": "Get Started · Geist",
+  "text": "Get Started",
+  "font": { "family": "Geist", "style": "Medium" },
+  "fontSize": 30,
+  "fill": "#E73568",
+  "textColor": "#FFFFFF",
+  "padding": { "top": 20, "right": 40, "bottom": 20, "left": 40 },
+  "radius": 16,
+  "x": 80,
+  "y": 80
+}
